@@ -545,6 +545,22 @@ else
 fi
 }
 
+
+function CHECK_DOCKER() {
+status=$(systemctl is-active docker)
+
+if [ "$status" = "active" ]; then
+    INFO "Docker 服务运行正常，请继续..."
+else
+    ERROR "Docker 服务未运行，会导致服务无法正常安装运行，请检查后再次执行脚本！"
+    ERROR "-----------服务启动失败，请查看错误日志 ↓↓↓-----------"
+      journalctl -u chatnio.service --no-pager
+    ERROR "-----------服务启动失败，请查看错误日志 ↑↑↑-----------"
+    exit 1
+fi
+}
+
+
 function INSTALL_DOCKER() {
 repo_file="docker-ce.repo"
 url="https://download.docker.com/linux/$repo_type"
@@ -568,7 +584,8 @@ if [ "$repo_type" = "centos" ] || [ "$repo_type" = "rhel" ]; then
 
       if $success; then
          INFO "Docker 安装成功，版本为：$(docker --version)"
-         systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
+         systemctl restart docker &>/dev/null
+         CHECK_DOCKER
          systemctl enable docker &>/dev/null
       else
          ERROR "Docker 安装失败，请尝试手动安装"
@@ -595,7 +612,8 @@ elif [ "$repo_type" == "ubuntu" ]; then
 
       if $success; then
          INFO "Docker 安装成功，版本为：$(docker --version)"
-         systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
+         systemctl restart docker &>/dev/null
+         CHECK_DOCKER
          systemctl enable docker &>/dev/null
       else
          ERROR "Docker 安装失败，请尝试手动安装"
@@ -624,15 +642,17 @@ elif [ "$repo_type" == "debian" ]; then
 
       if $success; then
          INFO "Docker 安装成功，版本为：$(docker --version)"
-         systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
+         systemctl restart docker &>/dev/null
+         CHECK_DOCKER
          systemctl enable docker &>/dev/null
       else
          ERROR "Docker 安装失败，请尝试手动安装"
          exit 1
       fi
     else
-      INFO "Docker 已安装，安装版本为：$(docker --version)"
-      systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
+        INFO "Docker 已安装，安装版本为：$(docker --version)"
+        systemctl restart docker &>/dev/null
+        CHECK_DOCKER
     fi
 else
     ERROR "不支持的操作系统."
@@ -751,16 +771,18 @@ StartLimitInterval=60s
 [Install]
 WantedBy=multi-user.target
 EOF
-     systemctl daemon-reload
-     systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
-     systemctl enable docker &>/dev/null
+    systemctl daemon-reload
+    systemctl restart docker &>/dev/null
+    CHECK_DOCKER
+    systemctl enable docker &>/dev/null
   else
-     ERROR "Docker 安装失败，请尝试手动安装"
-     exit 1
+    ERROR "Docker 安装失败，请尝试手动安装"
+    exit 1
   fi
 else 
-  INFO "Docker 已安装，安装版本为：$(docker --version)"
-  systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
+    INFO "Docker 已安装，安装版本为：$(docker --version)"
+    systemctl restart docker &>/dev/null
+    CHECK_DOCKER
 fi
 }
 
