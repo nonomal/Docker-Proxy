@@ -42,12 +42,14 @@
 
 | 镜像 | 平台 |
 |-------|---------------|
-| dockerdqz/mirror-hub:latest   | docker hub
-| dockerdqz/mirror-gcr:latest      | Google Container Registry
-| dockerdqz/mirror-ghcr:latest     | GitHub Container Registry
-| dockerdqz/mirror-k8sgcr:latest  | Kubernetes Container Registry
-| dockerdqz/mirror-k8sreg:latest      | Kubernetes's container image registry
-| dockerdqz/mirror-quay:latest     | Quay Container Registry
+| dqzboy01/mirror-hub:latest   | docker hub
+| dqzboy01/mirror-gcr:latest      | Google Container Registry
+| dqzboy01/mirror-ghcr:latest     | GitHub Container Registry
+| dqzboy01/mirror-k8sgcr:latest  | Kubernetes Container Registry
+| dqzboy01/mirror-k8sreg:latest      | Kubernetes's container image registry
+| dqzboy01/mirror-quay:latest     | Quay Container Registry
+| dqzboy01/mirror-elastic:latest     | Microsoft Container Registry
+| dqzboy01/mirror-mcr:latest     | Elastic Stack
 
 <table>
     <tr>
@@ -118,6 +120,9 @@ docker pull your_render_url/library/redis:latest
 | ghcr.io     | your_render_url  |  GitHub Container Registry
 | k8s.gcr.io     | your_render_url  | Kubernetes Container Registry
 | quay.io     | your_render_url  | Quay Container Registry
+| mcr.microsoft.com     | mcr.your_domain_name  | Microsoft Container Registry
+| docker.elastic.co     | elastic.your_domain_name  | Elastic Stack
+
 
 ---
 
