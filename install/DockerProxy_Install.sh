@@ -641,6 +641,50 @@ fi
 }
 
 
+function INSTALL_COMPOSE() {
+INFO "================== 安装Docker Compose =================="
+
+TAG=`curl -s https://api.github.com/repos/docker/compose/releases/latest | jq -r '.tag_name'`
+url="https://github.com/docker/compose/releases/download/$TAG/docker-compose-$(uname -s)-$(uname -m)"
+MAX_ATTEMPTS=3
+attempt=0
+success=false
+save_path="/usr/local/bin"
+
+chmod +x $save_path/docker-compose &>/dev/null
+if ! command -v docker-compose &> /dev/null || [ -z "$(docker-compose --version)" ]; then
+    WARN "Docker Compose 未安装或安装不完整，正在进行安装..."    
+    while [ $attempt -lt $MAX_ATTEMPTS ]; do
+        attempt=$((attempt + 1))
+        wget --continue -q $url -O $save_path/docker-compose
+        if [ $? -eq 0 ]; then
+            chmod +x $save_path/docker-compose
+            version_check=$(docker-compose --version)
+            if [ -n "$version_check" ]; then
+                success=true
+                chmod +x $save_path/docker-compose
+                break
+            else
+                WARN "Docker Compose 下载的文件不完整，正在尝试重新下载 (尝试次数: $attempt)"
+                rm -f $save_path/docker-compose
+            fi
+        fi
+
+        ERROR "Docker Compose 下载失败，正在尝试重新下载 (尝试次数: $attempt)"
+    done
+
+    if $success; then
+        INFO "Docker Compose 安装成功，版本为：$(docker-compose --version)"
+    else
+        ERROR "Docker Compose 下载失败，请尝试手动安装docker-compose"
+        exit 1
+    fi
+else
+    chmod +x $save_path/docker-compose
+    INFO "Docker Compose 安装成功，版本为：$(docker-compose --version)"
+fi
+}
+
 function INSTALL_DOCKER_CN() {
 MAX_ATTEMPTS=3
 attempt=0
@@ -722,12 +766,13 @@ fi
 
 
 function INSTALL_COMPOSE_CN() {
+INFO "================== 安装Docker Compose =================="
+
 MAX_ATTEMPTS=3
 attempt=0
 cpu_arch=$(uname -m)
 success=false
-save_path="/usr/local/lib/docker/cli-plugins"
-mkdir -p $save_path
+save_path="/usr/local/bin"
 
 case $cpu_arch in
   "arm64")
@@ -747,20 +792,21 @@ esac
 
 
 chmod +x $save_path/docker-compose &>/dev/null
-if ! docker compose version &>/dev/null; then
-    WARN "Docker Compose 未安装，正在进行安装..."    
+if ! command -v docker-compose &> /dev/null || [ -z "$(docker-compose --version)" ]; then
+    WARN "Docker Compose 未安装或安装不完整，正在进行安装..."    
     while [ $attempt -lt $MAX_ATTEMPTS ]; do
         attempt=$((attempt + 1))
-        wget -O $save_path/docker-compose $url &>/dev/null
+        wget --continue -q $url -O $save_path/docker-compose
         if [ $? -eq 0 ]; then
             chmod +x $save_path/docker-compose
-            version_check=$(docker compose version)
+            version_check=$(docker-compose --version)
             if [ -n "$version_check" ]; then
                 success=true
+                chmod +x $save_path/docker-compose
                 break
             else
-                ERROR "Docker Compose下载的文件不完整，正在尝试重新下载 (尝试次数: $attempt)"
-                rm -f $save_path/docker-compose &>/dev/null
+                WARN "Docker Compose 下载的文件不完整，正在尝试重新下载 (尝试次数: $attempt)"
+                rm -f $save_path/docker-compose
             fi
         fi
 
@@ -768,14 +814,14 @@ if ! docker compose version &>/dev/null; then
     done
 
     if $success; then
-        INFO "Docker Compose 安装成功，版本为：$(docker compose version)"
+        INFO "Docker Compose 安装成功，版本为：$(docker-compose --version)"
     else
         ERROR "Docker Compose 下载失败，请尝试手动安装docker-compose"
         exit 1
     fi
 else
     chmod +x $save_path/docker-compose
-    INFO "Docker Compose 已安装，安装版本为：$(docker compose version)"
+    INFO "Docker Compose 安装成功，版本为：$(docker-compose --version)"
 fi
 }
 
@@ -960,17 +1006,17 @@ function START_CONTAINER() {
     fi
 
     if [ "$selected_all" = true ]; then
-        docker compose up -d --force-recreate
+        docker-compose up -d --force-recreate
     else
-        docker compose up -d "${selected_names[@]}" registry-ui
+        docker-compose up -d "${selected_names[@]}" registry-ui
     fi
 }
 
 function RESTART_CONTAINER() {
     if [ "$selected_all" = true ]; then
-        docker compose restart
+        docker-compose restart
     else
-        docker compose restart "${selected_names[@]}"
+        docker-compose restart "${selected_names[@]}"
     fi
 }
 
@@ -986,7 +1032,7 @@ START_CONTAINER
 function STOP_REMOVE_CONTAINER() {
     if [[ -f "${PROXY_DIR}/${DOCKER_COMPOSE_FILE}" ]]; then
         INFO "停止和移除所有容器"
-        docker compose -f "${PROXY_DIR}/${DOCKER_COMPOSE_FILE}" down --remove-orphans
+        docker-compose -f "${PROXY_DIR}/${DOCKER_COMPOSE_FILE}" down --remove-orphans
     else 
         WARN "容器未运行，无需删除"
         exit 1
@@ -1104,7 +1150,7 @@ function UPDATE_SERVICE() {
     if [[ "$choices_service" == "9" ]]; then
         for service_name in "${services[@]}"; do
             #检查服务是否正在运行
-            if docker compose ps --services | grep -q "^${service_name}$"; then
+            if docker-compose ps --services | grep -q "^${service_name}$"; then
                 selected_services+=("$service_name")               
             else
                 WARN "服务 ${service_name}未运行，跳过更新。"
@@ -1119,7 +1165,7 @@ function UPDATE_SERVICE() {
             if [[ $choice =~ ^[0-9]+$ ]] && ((choice >0 && choice <= ${#services[@]})); then
                 service_name="${services[$((choice -1))]}"
                 #检查服务是否正在运行
-                if docker compose ps --services | grep -q "^${service_name}$"; then
+                if docker-compose ps --services | grep -q "^${service_name}$"; then
                     selected_services+=("$service_name")
                     INFO "更新的服务: ${selected_services[*]}"
                 else
@@ -1188,6 +1234,7 @@ case $user_choice in
             case "$deploy_docker" in
                 1 )
                     INSTALL_DOCKER
+                    INSTALL_COMPOSE
                     break;;
                 2 )
                     INSTALL_DOCKER_CN
@@ -1203,7 +1250,7 @@ case $user_choice in
         ;;
     2)
         INFO "======================= 重启服务 ======================="
-        docker compose restart
+        docker-compose restart
         INFO "======================= 重启完成 ======================="
         ;;
     3)
@@ -1212,8 +1259,8 @@ case $user_choice in
         if [ ${#selected_services[@]} -eq 0 ]; then
             WARN "没有需要更新的服务。"
         else
-            docker compose pull ${selected_services[*]}
-            docker compose up -d --force-recreate ${selected_services[*]}
+            docker-compose pull ${selected_services[*]}
+            docker-compose up -d --force-recreate ${selected_services[*]}
         fi
         INFO "======================= 更新完成 ======================="
         ;;
