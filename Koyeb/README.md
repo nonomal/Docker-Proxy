@@ -10,13 +10,6 @@
 
 [Telegram Group](https://t.me/+ghs_XDp1vwxkMGU9) 
 
-<details>
-<summary>点击此处加入微信交流群</summary>
-<div align="center">
-<img src="https://raw.githubusercontent.com/dqzboy/Blog-Image/main/TEG/dqzboy-it.png" width="400px">
-</div>
-</details>
-
 ---
 
 
