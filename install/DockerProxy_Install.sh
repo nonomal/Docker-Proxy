@@ -424,7 +424,6 @@ elif [ "$package_manager" = "apt" ] || [ "$package_manager" = "apt-get" ];then
         fi
     fi
 
-    # 启动Caddy
     check_caddy
 else
     WARN "无法确定包管理系统."
@@ -444,7 +443,6 @@ while true; do
             read -e -p "$(INFO '请输入要配置的主机记录，用逗号分隔[例: hub,mcr]: ')" selected_records
             IFS=',' read -r -a records_array <<< "$selected_records"
 
-            # 定义主机记录对应的配置模板
             declare -A record_templates
             record_templates[ui]="ui.$caddy_domain {
     reverse_proxy localhost:50000 {
@@ -521,8 +519,6 @@ while true; do
         header_up X-Nginx-Proxy true
     }
 }"
-
-            # 生成Caddy配置文件内容
             > /etc/caddy/Caddyfile
             for record in "${records_array[@]}"; do
                 if [[ -n "${record_templates[$record]}" ]]; then
@@ -530,9 +526,7 @@ while true; do
                 fi
             done
 
-            # 重启服务
             start_attempts=3
-            # 最多尝试启动 3 次
             for ((i=1; i<=$start_attempts; i++)); do
                 start_caddy
                 if pgrep "caddy" > /dev/null; then
@@ -631,7 +625,6 @@ if [ "$package_manager" = "dnf" ] || [ "$package_manager" = "yum" ]; then
         done
     fi
 
-    # 启动nginx
     check_nginx
 
 elif [ "$package_manager" = "apt-get" ] || [ "$package_manager" = "apt" ];then
@@ -648,7 +641,6 @@ elif [ "$package_manager" = "apt-get" ] || [ "$package_manager" = "apt" ];then
         fi
     fi
 
-    # 启动nginx
     check_nginx
 else
     WARN "无法确定包管理系统."
@@ -669,7 +661,6 @@ while true; do
             read -e -p "$(INFO '请输入要配置的主机记录，用逗号分隔[例: hub,mcr]: ')" selected_records
             IFS=',' read -r -a records_array <<< "$selected_records"
 
-            # 定义主机记录对应的配置模板
             declare -A record_templates
             record_templates[ui]="server {
     listen       80;
@@ -1034,7 +1025,6 @@ elif [ "$repo_type" == "debian" ]; then
         curl -fsSL $url/gpg | sudo apt-key add - &>/dev/null
         add-apt-repository "deb [arch=amd64] $url $(lsb_release -cs) stable" <<< $'\n' &>/dev/null
         $package_manager -y install docker-ce docker-ce-cli containerd.io &>/dev/null
-        # 检查命令的返回值
         if [ $? -eq 0 ]; then
             success=true
             break
@@ -1191,7 +1181,6 @@ fi
 
 function INSTALL_COMPOSE_CN() {
 INFO "================== 安装Docker Compose =================="
-
 MAX_ATTEMPTS=3
 attempt=0
 cpu_arch=$(uname -m)
@@ -1575,7 +1564,6 @@ function UPDATE_SERVICE() {
 
     if [[ "$choices_service" == "9" ]]; then
         for service_name in "${services[@]}"; do
-            #检查服务是否正在运行
             if docker-compose ps --services | grep -q "^${service_name}$"; then
                 selected_services+=("$service_name")               
             else
@@ -1590,7 +1578,6 @@ function UPDATE_SERVICE() {
         for choice in ${choices_service}; do
             if [[ $choice =~ ^[0-9]+$ ]] && ((choice >0 && choice <= ${#services[@]})); then
                 service_name="${services[$((choice -1))]}"
-                #检查服务是否正在运行
                 if docker-compose ps --services | grep -q "^${service_name}$"; then
                     selected_services+=("$service_name")
                     INFO "更新的服务: ${selected_services[*]}"
@@ -1608,13 +1595,8 @@ function UPDATE_SERVICE() {
 
 
 function PROMPT(){
-# 获取公网IP
 PUBLIC_IP=$(curl -s https://ifconfig.me)
-
-# 获取所有网络接口的IP地址
 ALL_IPS=$(hostname -I)
-
-# 排除不需要的地址（127.0.0.1和docker0）
 INTERNAL_IP=$(echo "$ALL_IPS" | awk '$1!="127.0.0.1" && $1!="::1" && $1!="docker0" {print $1}')
 
 echo
@@ -1637,7 +1619,6 @@ INFO "================================================================"
 
 
 function main() {
-
 INFO "====================== 请选择操作 ======================"
 echo "1) 新装服务"
 echo "2) 重启服务"
