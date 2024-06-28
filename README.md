@@ -97,7 +97,8 @@ docker logs -f [容器ID或名称]
 ## 🔨 功能
 - 一键部署Docker镜像代理服务的功能，支持基于官方Docker Registry的镜像代理. 
 - 支持多个镜像仓库的代理，包括Docker Hub、GitHub Container Registry(ghcr.io)、Quay Container Registry(quay.io)、Kubernetes Container Registry(k8s.gcr.io)、Microsoft Container(mcr.microsoft.com)、Elastic Stack(docker.elastic.co)
-- 自动检查并安装所需的依赖软件，如Docker、Nginx等，并确保系统环境满足运行要求.
+- 自动检查并安装所需的依赖软件，如Docker、Nginx\Caddy等，并确保系统环境满足运行要求
+- 根据你所选择部署的服务，自动渲染对应的Nginx或Caddy服务配置
 - 自动清理注册表上传目录中的那些不再被任何镜像或清单引用的文件
 - 提供了重启服务、更新服务、更新配置和卸载服务的功能，方便用户进行日常管理和维护
 - 支持用户在部署时选择是否提供身份验证

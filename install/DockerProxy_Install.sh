@@ -310,8 +310,20 @@ fi
 function INSTALL_CADDY() {
 INFO "====================== 安装Caddy ======================"
 start_caddy() {
-    systemctl enable caddy.service &>/dev/null
-    systemctl restart caddy.service
+systemctl enable caddy.service &>/dev/null
+systemctl restart caddy.service
+
+status=$(systemctl is-active caddy)
+
+if [ "$status" = "active" ]; then
+    INFO "Caddy 服务运行正常，请继续..."
+else
+    ERROR "Caddy 服务未运行，会导致服务无法正常安装运行，请检查后再次执行脚本！"
+    ERROR "-----------服务启动失败，请查看错误日志 ↓↓↓-----------"
+      journalctl -u caddy.service --no-pager
+    ERROR "-----------服务启动失败，请查看错误日志 ↑↑↑-----------"
+    exit 1
+fi
 }
 
 check_caddy() {
@@ -324,7 +336,7 @@ else
     for ((i=1; i<=$start_attempts; i++)); do
         start_caddy
         if pgrep "caddy" > /dev/null; then
-            INFO "Caddy已成功启动."
+            INFO "Caddy 已成功启动."
             break
         else
             if [ $i -eq $start_attempts ]; then
@@ -422,13 +434,102 @@ fi
 
 INFO "====================== 配置Caddy ======================"
 while true; do
-    INFO ">>> 域名解析主机记录(即域名前缀)：ui、hub、gcr、ghcr、k8s-gcr、k8s、quay、mcr、elastic <<<"
+    INFO ">>> 域名解析主机记录(即域名前缀)：ui、hub、gcr、ghcr、k8sgcr、k8s、quay、mcr、elastic <<<"
+    WARN ">>> 只需选择你部署的服务进行解析即可，无需将上面提示中所有的主机记录进行解析 <<<"
     read -e -p "$(WARN '是否配置Caddy,实现自动HTTPS? 执行前需提前在DNS服务商选择部署的服务进行解析主机记录[y/n]: ')" caddy_conf
     case "$caddy_conf" in
         y|Y )
             read -e -p "$(INFO '请输入你的域名[例: baidu.com],不可为空: ')" caddy_domain
-            wget -NP /etc/caddy/ ${GITRAW}/caddy/Caddyfile &>/dev/null
-            sed -i "s#your_domain_name#$caddy_domain#g" /etc/caddy/Caddyfile
+            
+            read -e -p "$(INFO '请输入要配置的主机记录，用逗号分隔[例: hub,mcr]: ')" selected_records
+            IFS=',' read -r -a records_array <<< "$selected_records"
+
+            # 定义主机记录对应的配置模板
+            declare -A record_templates
+            record_templates[ui]="ui.$caddy_domain {
+    reverse_proxy localhost:50000 {
+        header_up Host {host}
+        header_up Origin {scheme}://{host}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Ssl on
+        header_up X-Forwarded-Port {server_port}
+        header_up X-Forwarded-Host {host}
+    }
+}"
+            record_templates[hub]="hub.$caddy_domain {
+    reverse_proxy localhost:51000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[ghcr]="ghcr.$caddy_domain {
+    reverse_proxy localhost:52000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[gcr]="gcr.$caddy_domain {
+    reverse_proxy localhost:53000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[k8sgcr]="k8sgcr.$caddy_domain {
+    reverse_proxy localhost:54000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[k8s]="k8s.$caddy_domain {
+    reverse_proxy localhost:55000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[quay]="quay.$caddy_domain {
+    reverse_proxy localhost:56000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[mcr]="mcr.$caddy_domain {
+    reverse_proxy localhost:57000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[elastic]="elastic.$caddy_domain {
+    reverse_proxy localhost:58000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+
+            # 生成Caddy配置文件内容
+            > /etc/caddy/Caddyfile
+            for record in "${records_array[@]}"; do
+                if [[ -n "${record_templates[$record]}" ]]; then
+                    echo "${record_templates[$record]}" >> /etc/caddy/Caddyfile
+                fi
+            done
+
             # 重启服务
             start_attempts=3
             # 最多尝试启动 3 次
@@ -442,11 +543,10 @@ while true; do
                         ERROR "Caddy 在尝试 $start_attempts 后无法启动。请检查配置"
                         exit 1
                     else
-                        WARN "在 $i 时间内启动 Caddy 失败。重试..."
+                        WARN "第 $i 次启动 Caddy 失败。重试..."
                     fi
                 fi
             done
-
             break;;
         n|N )
             WARN "退出配置 Caddy 操作。"
@@ -455,15 +555,26 @@ while true; do
             INFO "请输入 'y' 表示是，或者 'n' 表示否。";;
     esac
 done
-
 }
 
 
 function INSTALL_NGINX() {
 INFO "====================== 安装Nginx ======================"
 start_nginx() {
-    systemctl enable nginx &>/dev/null
-    systemctl restart nginx
+systemctl enable nginx &>/dev/null
+systemctl restart nginx
+
+status=$(systemctl is-active nginx)
+
+if [ "$status" = "active" ]; then
+    INFO "Nginx 服务运行正常，请继续..."
+else
+    ERROR "Nginx 服务未运行，会导致服务无法正常安装运行，请检查后再次执行脚本！"
+    ERROR "-----------服务启动失败，请查看错误日志 ↓↓↓-----------"
+      journalctl -u nginx.service --no-pager
+    ERROR "-----------服务启动失败，请查看错误日志 ↑↑↑-----------"
+    exit 1
+fi
 }
 
 check_nginx() {
@@ -476,7 +587,7 @@ else
     for ((i=1; i<=$start_attempts; i++)); do
         start_nginx
         if pgrep "nginx" > /dev/null; then
-            INFO "Nginx已成功启动."
+            INFO "Nginx 已成功启动."
             break
         else
             if [ $i -eq $start_attempts ]; then
@@ -543,6 +654,297 @@ else
     WARN "无法确定包管理系统."
     exit 1
 fi
+
+
+INFO "====================== 配置Nginx ======================"
+while true; do
+    WARN "自行安装的 Nginx 请勿执行此操作，以防覆盖原有配置"
+    INFO ">>> 域名解析主机记录(即域名前缀)：ui、hub、gcr、ghcr、k8sgcr、k8s、quay、mcr、elastic <<<"
+    WARN ">>> 只需选择你部署的服务进行解析即可，无需将上面提示中所有的主机记录进行解析 <<<"
+    read -e -p "$(WARN '是否配置 Nginx ？配置完成后需在DNS服务商对部署的服务进行解析主机记录[y/n]: ')" nginx_conf
+    case "$nginx_conf" in
+        y|Y )
+            read -e -p "$(INFO '请输入你的域名[例: baidu.com],不可为空: ')" nginx_domain
+            
+            read -e -p "$(INFO '请输入要配置的主机记录，用逗号分隔[例: hub,mcr]: ')" selected_records
+            IFS=',' read -r -a records_array <<< "$selected_records"
+
+            # 定义主机记录对应的配置模板
+            declare -A record_templates
+            record_templates[ui]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  ui.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:50000;
+        proxy_set_header  Host \$host;
+        proxy_set_header  Origin \$scheme://\$host;
+        proxy_set_header  X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header  X-Forwarded-Proto \$scheme;
+        proxy_set_header  X-Forwarded-Ssl on; 
+        proxy_set_header  X-Forwarded-Port \$server_port;
+        proxy_set_header  X-Forwarded-Host \$host;
+    }
+}"
+            record_templates[hub]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  hub.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:51000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[ghcr]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  ghcr.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:52000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[gcr]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  gcr.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:53000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[k8sgcr]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  k8sgcr.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:54000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[k8s]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  k8s.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:55000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[quay]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  quay.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:56000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[mcr]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  mcr.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:57000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[elastic]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  elastic.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:58000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            > /etc/nginx/conf.d/docker-proxy.conf
+            for record in "${records_array[@]}"; do
+                if [[ -n "${record_templates[$record]}" ]]; then
+                    echo "${record_templates[$record]}" >> /etc/nginx/conf.d/docker-proxy.conf
+                fi
+            done
+
+            start_attempts=3
+            for ((i=1; i<=$start_attempts; i++)); do
+                start_nginx
+                if pgrep "nginx" > /dev/null; then
+                    INFO "重新载入配置成功. Nginx服务启动完成"
+                    break
+                else
+                    if [ $i -eq $start_attempts ]; then
+                        ERROR "Nginx 在尝试 $start_attempts 后无法启动。请检查配置"
+                        exit 1
+                    else
+                        WARN "第 $i 次启动 Nginx 失败。重试..."
+                    fi
+                fi
+            done
+            break;;
+        n|N )
+            WARN "退出配置 Nginx 操作。"
+            break;;
+        * )
+            INFO "请输入 'y' 表示是，或者 'n' 表示否。";;
+    esac
+done
 }
 
 
@@ -554,7 +956,7 @@ if [ "$status" = "active" ]; then
 else
     ERROR "Docker 服务未运行，会导致服务无法正常安装运行，请检查后再次执行脚本！"
     ERROR "-----------服务启动失败，请查看错误日志 ↓↓↓-----------"
-      journalctl -u chatnio.service --no-pager
+      journalctl -u docker.service --no-pager
     ERROR "-----------服务启动失败，请查看错误日志 ↑↑↑-----------"
     exit 1
 fi
@@ -1003,7 +1405,8 @@ Environment="HTTP_PROXY=http://$url"
 Environment="HTTPS_PROXY=http://$url"
 EOF
     systemctl daemon-reload
-    systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
+    systemctl restart docker &>/dev/null
+    CHECK_DOCKER
 else
     if ! grep -q "HTTP_PROXY=http://$url" /etc/systemd/system/docker.service.d/http-proxy.conf || ! grep -q "HTTPS_PROXY=http://$url" /etc/systemd/system/docker.service.d/http-proxy.conf; then
         cat >> /etc/systemd/system/docker.service.d/http-proxy.conf <<EOF
@@ -1012,7 +1415,8 @@ Environment="HTTP_PROXY=http://$url"
 Environment="HTTPS_PROXY=http://$url"
 EOF
         systemctl daemon-reload
-        systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
+        systemctl restart docker &>/dev/null
+        CHECK_DOCKER
     else
         INFO "======================================================= "
     fi
@@ -1111,7 +1515,7 @@ done
 
 function INSTALL_WEB() {
 while true; do
-    read -e -p "$(INFO "是否安装WEB服务？[y/n]: ")" choice_service
+    read -e -p "$(INFO "是否安装WEB服务？(用来通过域名方式访问加速服务) [y/n]: ")" choice_service
     if [[ "$choice_service" =~ ^[YyNn]$ ]]; then
         if [[ "$choice_service" == "Y" || "$choice_service" == "y" ]]; then
             while true; do
@@ -1220,6 +1624,8 @@ INFO "请用浏览器访问 UI 面板: "
 INFO "公网访问地址: http://$PUBLIC_IP:50000"
 INFO "内网访问地址: http://$INTERNAL_IP:50000"
 INFO
+INFO "服务安装路径: ${PROXY_DIR}"
+INFO 
 INFO "作者博客: https://dqzboy.com"
 INFO "技术交流: https://t.me/dqzboyblog"
 INFO "代码仓库: https://github.com/dqzboy/Docker-Proxy"
