@@ -49,20 +49,17 @@ function WARN() {
     echo -e "${WARN} ${1}"
 }
 
-# 服务部署和配置持久华存储路径
+
 PROXY_DIR="/data/registry-proxy"
 mkdir -p ${PROXY_DIR}
 cd "${PROXY_DIR}"
 
-# 项目RAW地址
 GITRAW="https://raw.githubusercontent.com/dqzboy/Docker-Proxy/main"
 
 IMAGE_NAME="registry"
 UI_IMAGE_NAME="dqzboy/docker-registry-ui"
 DOCKER_COMPOSE_FILE="docker-compose.yaml"
 
-
-# 定义安装重试次数
 attempts=0
 maxAttempts=3
 
@@ -79,7 +76,6 @@ else
     exit 1
 fi
 
-# 根据发行版选择存储库类型
 case "$ID" in
     "centos")
         repo_type="centos"
@@ -140,10 +136,7 @@ function CHECK_PKG_MANAGER() {
 }
 
 function CHECKMEM() {
-# 获取内存使用率，并保留两位小数
 memory_usage=$(free | awk '/^Mem:/ {printf "%.2f", $3/$2 * 100}')
-
-# 将内存使用率转为整数（去掉小数部分）
 memory_usage=${memory_usage%.*}
 
 if [[ $memory_usage -gt 90 ]]; then  # 判断是否超过 90%
@@ -249,13 +242,13 @@ esac
 
 function INSTALL_PACKAGE(){
 INFO "======================= 安装依赖 ======================="
-# 每个软件包的安装超时时间（秒）
+INFO "检查依赖安装情况，请稍等 ..."
 TIMEOUT=300
 PACKAGES_APT=(
-    lsof jq wget apache2-utils
+    lsof jq wget apache2-utils tar
 )
 PACKAGES_YUM=(
-    epel-release lsof jq wget yum-utils httpd-tools
+    epel-release lsof jq wget yum-utils httpd-tools tar
 )
 
 if [ "$package_manager" = "dnf" ] || [ "$package_manager" = "yum" ]; then
@@ -265,19 +258,15 @@ if [ "$package_manager" = "dnf" ] || [ "$package_manager" = "yum" ]; then
         else
             INFO "正在安装 $package ..."
 
-            # 记录开始时间
             start_time=$(date +%s)
 
-            # 安装软件包并等待完成
             $package_manager -y install "$package" --skip-broken > /dev/null 2>&1 &
             install_pid=$!
 
-            # 检查安装是否超时
             while [[ $(($(date +%s) - $start_time)) -lt $TIMEOUT ]] && kill -0 $install_pid &>/dev/null; do
                 sleep 1
             done
 
-            # 如果安装仍在运行，提示用户
             if kill -0 $install_pid &>/dev/null; then
                 WARN "$package 的安装时间超过 $TIMEOUT 秒。是否继续？ (y/n)"
                 read -r continue_install
@@ -285,12 +274,10 @@ if [ "$package_manager" = "dnf" ] || [ "$package_manager" = "yum" ]; then
                     ERROR "$package 的安装超时。退出脚本。"
                     exit 1
                 else
-                    # 直接跳过等待，继续下一个软件包的安装
                     continue
                 fi
             fi
 
-            # 检查安装结果
             wait $install_pid
             if [ $? -ne 0 ]; then
                 ERROR "$package 安装失败。请检查系统安装源，然后再次运行此脚本！请尝试手动执行安装：$package_manager -y install $package"
@@ -322,25 +309,34 @@ fi
 
 function INSTALL_CADDY() {
 INFO "====================== 安装Caddy ======================"
-# 定义一个函数来启动 Caddy
 start_caddy() {
-    systemctl enable caddy.service &>/dev/null
-    systemctl restart caddy.service
+systemctl enable caddy.service &>/dev/null
+systemctl restart caddy.service
+
+status=$(systemctl is-active caddy)
+
+if [ "$status" = "active" ]; then
+    INFO "Caddy 服务运行正常，请继续..."
+else
+    ERROR "Caddy 服务未运行，会导致服务无法正常安装运行，请检查后再次执行脚本！"
+    ERROR "-----------服务启动失败，请查看错误日志 ↓↓↓-----------"
+      journalctl -u caddy.service --no-pager
+    ERROR "-----------服务启动失败，请查看错误日志 ↑↑↑-----------"
+    exit 1
+fi
 }
 
 check_caddy() {
-# 检查 caddy 是否正在运行
 if pgrep "caddy" > /dev/null; then
     INFO "Caddy 已在运行."
 else
     WARN "Caddy 未运行。尝试启动 Caddy..."
     start_attempts=3
 
-    # 最多尝试启动 3 次
     for ((i=1; i<=$start_attempts; i++)); do
         start_caddy
         if pgrep "caddy" > /dev/null; then
-            INFO "Caddy已成功启动."
+            INFO "Caddy 已成功启动."
             break
         else
             if [ $i -eq $start_attempts ]; then
@@ -355,7 +351,6 @@ fi
 }
 
 if [ "$package_manager" = "dnf" ]; then
-    # 检查是否已安装Caddy
     if which caddy &>/dev/null; then
         INFO "Caddy 已经安装."
     else
@@ -381,12 +376,9 @@ if [ "$package_manager" = "dnf" ]; then
             fi
         done
     fi
-
-    # 启动caddy
     check_caddy
 
 elif [ "$package_manager" = "yum" ]; then
-    # 检查是否已安装Caddy
     if which caddy &>/dev/null; then
         INFO "Caddy 已经安装."
     else
@@ -412,7 +404,6 @@ elif [ "$package_manager" = "yum" ]; then
         done
     fi
 
-    # 启动caddy
     check_caddy
 
 elif [ "$package_manager" = "apt" ] || [ "$package_manager" = "apt-get" ];then
@@ -433,7 +424,6 @@ elif [ "$package_manager" = "apt" ] || [ "$package_manager" = "apt-get" ];then
         fi
     fi
 
-    # 启动Caddy
     check_caddy
 else
     WARN "无法确定包管理系统."
@@ -443,16 +433,100 @@ fi
 
 INFO "====================== 配置Caddy ======================"
 while true; do
-    INFO ">>> 域名解析主机记录(即域名前缀)：ui、hub、gcr、ghcr、k8s-gcr、k8s、quay <<<"
+    INFO ">>> 域名解析主机记录(即域名前缀)：ui、hub、gcr、ghcr、k8sgcr、k8s、quay、mcr、elastic <<<"
+    WARN ">>> 只需选择你部署的服务进行解析即可，无需将上面提示中所有的主机记录进行解析 <<<"
     read -e -p "$(WARN '是否配置Caddy,实现自动HTTPS? 执行前需提前在DNS服务商选择部署的服务进行解析主机记录[y/n]: ')" caddy_conf
     case "$caddy_conf" in
         y|Y )
             read -e -p "$(INFO '请输入你的域名[例: baidu.com],不可为空: ')" caddy_domain
-            wget -NP /etc/caddy/ ${GITRAW}/caddy/Caddyfile &>/dev/null
-            sed -i "s#your_domain_name#$caddy_domain#g" /etc/caddy/Caddyfile
-            # 重启服务
+            
+            read -e -p "$(INFO '请输入要配置的主机记录，用逗号分隔[例: hub,mcr]: ')" selected_records
+            IFS=',' read -r -a records_array <<< "$selected_records"
+
+            declare -A record_templates
+            record_templates[ui]="ui.$caddy_domain {
+    reverse_proxy localhost:50000 {
+        header_up Host {host}
+        header_up Origin {scheme}://{host}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Ssl on
+        header_up X-Forwarded-Port {server_port}
+        header_up X-Forwarded-Host {host}
+    }
+}"
+            record_templates[hub]="hub.$caddy_domain {
+    reverse_proxy localhost:51000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[ghcr]="ghcr.$caddy_domain {
+    reverse_proxy localhost:52000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[gcr]="gcr.$caddy_domain {
+    reverse_proxy localhost:53000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[k8sgcr]="k8sgcr.$caddy_domain {
+    reverse_proxy localhost:54000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[k8s]="k8s.$caddy_domain {
+    reverse_proxy localhost:55000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[quay]="quay.$caddy_domain {
+    reverse_proxy localhost:56000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[mcr]="mcr.$caddy_domain {
+    reverse_proxy localhost:57000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            record_templates[elastic]="elastic.$caddy_domain {
+    reverse_proxy localhost:58000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_addr}
+        header_up X-Forwarded-For {remote_addr}
+        header_up X-Nginx-Proxy true
+    }
+}"
+            > /etc/caddy/Caddyfile
+            for record in "${records_array[@]}"; do
+                if [[ -n "${record_templates[$record]}" ]]; then
+                    echo "${record_templates[$record]}" >> /etc/caddy/Caddyfile
+                fi
+            done
+
             start_attempts=3
-            # 最多尝试启动 3 次
             for ((i=1; i<=$start_attempts; i++)); do
                 start_caddy
                 if pgrep "caddy" > /dev/null; then
@@ -463,11 +537,10 @@ while true; do
                         ERROR "Caddy 在尝试 $start_attempts 后无法启动。请检查配置"
                         exit 1
                     else
-                        WARN "在 $i 时间内启动 Caddy 失败。重试..."
+                        WARN "第 $i 次启动 Caddy 失败。重试..."
                     fi
                 fi
             done
-
             break;;
         n|N )
             WARN "退出配置 Caddy 操作。"
@@ -476,31 +549,39 @@ while true; do
             INFO "请输入 'y' 表示是，或者 'n' 表示否。";;
     esac
 done
-
 }
 
 
 function INSTALL_NGINX() {
 INFO "====================== 安装Nginx ======================"
-# 定义一个函数来启动 Nginx
 start_nginx() {
-    systemctl enable nginx &>/dev/null
-    systemctl restart nginx
+systemctl enable nginx &>/dev/null
+systemctl restart nginx
+
+status=$(systemctl is-active nginx)
+
+if [ "$status" = "active" ]; then
+    INFO "Nginx 服务运行正常，请继续..."
+else
+    ERROR "Nginx 服务未运行，会导致服务无法正常安装运行，请检查后再次执行脚本！"
+    ERROR "-----------服务启动失败，请查看错误日志 ↓↓↓-----------"
+      journalctl -u nginx.service --no-pager
+    ERROR "-----------服务启动失败，请查看错误日志 ↑↑↑-----------"
+    exit 1
+fi
 }
 
 check_nginx() {
-# 检查 Nginx 是否正在运行
 if pgrep "nginx" > /dev/null; then
     INFO "Nginx 已在运行."
 else
     WARN "Nginx 未运行。尝试启动 Nginx..."
     start_attempts=3
 
-    # 最多尝试启动 3 次
     for ((i=1; i<=$start_attempts; i++)); do
         start_nginx
         if pgrep "nginx" > /dev/null; then
-            INFO "Nginx已成功启动."
+            INFO "Nginx 已成功启动."
             break
         else
             if [ $i -eq $start_attempts ]; then
@@ -515,14 +596,12 @@ fi
 }
 
 if [ "$package_manager" = "dnf" ] || [ "$package_manager" = "yum" ]; then
-    # 检查是否已安装Nginx
     if which nginx &>/dev/null; then
         INFO "Nginx 已经安装."
     else
         INFO "正在安装Nginx程序，请稍候..."
         NGINX="nginx-1.24.0-1.el${OSVER}.ngx.x86_64.rpm"
 
-        # 下载并安装RPM包
         rm -f ${NGINX}
         wget http://nginx.org/packages/centos/${OSVER}/x86_64/RPMS/${NGINX} &>/dev/null
         while [ $attempts -lt $maxAttempts ]; do
@@ -546,7 +625,6 @@ if [ "$package_manager" = "dnf" ] || [ "$package_manager" = "yum" ]; then
         done
     fi
 
-    # 启动nginx
     check_nginx
 
 elif [ "$package_manager" = "apt-get" ] || [ "$package_manager" = "apt" ];then
@@ -563,23 +641,323 @@ elif [ "$package_manager" = "apt-get" ] || [ "$package_manager" = "apt" ];then
         fi
     fi
 
-    # 启动nginx
     check_nginx
 else
     WARN "无法确定包管理系统."
     exit 1
 fi
+
+
+INFO "====================== 配置Nginx ======================"
+while true; do
+    WARN "自行安装的 Nginx 请勿执行此操作，以防覆盖原有配置"
+    INFO ">>> 域名解析主机记录(即域名前缀)：ui、hub、gcr、ghcr、k8sgcr、k8s、quay、mcr、elastic <<<"
+    WARN ">>> 只需选择你部署的服务进行解析即可，无需将上面提示中所有的主机记录进行解析 <<<"
+    read -e -p "$(WARN '是否配置 Nginx ？配置完成后需在DNS服务商对部署的服务进行解析主机记录[y/n]: ')" nginx_conf
+    case "$nginx_conf" in
+        y|Y )
+            read -e -p "$(INFO '请输入你的域名[例: baidu.com],不可为空: ')" nginx_domain
+            
+            read -e -p "$(INFO '请输入要配置的主机记录，用逗号分隔[例: hub,mcr]: ')" selected_records
+            IFS=',' read -r -a records_array <<< "$selected_records"
+
+            declare -A record_templates
+            record_templates[ui]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  ui.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:50000;
+        proxy_set_header  Host \$host;
+        proxy_set_header  Origin \$scheme://\$host;
+        proxy_set_header  X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header  X-Forwarded-Proto \$scheme;
+        proxy_set_header  X-Forwarded-Ssl on; 
+        proxy_set_header  X-Forwarded-Port \$server_port;
+        proxy_set_header  X-Forwarded-Host \$host;
+    }
+}"
+            record_templates[hub]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  hub.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:51000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[ghcr]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  ghcr.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:52000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[gcr]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  gcr.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:53000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[k8sgcr]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  k8sgcr.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:54000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[k8s]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  k8s.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:55000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[quay]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  quay.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:56000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[mcr]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  mcr.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:57000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            record_templates[elastic]="server {
+    listen       80;
+    #listen       443 ssl;
+    server_name  elastic.$nginx_domain;
+    #ssl_certificate /path/to/your_domain_name.crt;
+    #ssl_certificate_key /path/to/your_domain_name.key;
+    #ssl_session_timeout 1d;
+    #ssl_session_cache   shared:SSL:50m;
+    #ssl_session_tickets off;
+    #ssl_protocols TLSv1.2 TLSv1.3;
+    #ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+    #ssl_prefer_server_ciphers on;
+    #ssl_buffer_size 8k;
+    proxy_connect_timeout 600;
+    proxy_send_timeout    600;
+    proxy_read_timeout    600;
+    send_timeout          600;
+    location / {
+        proxy_pass   http://localhost:58000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;        
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}"
+            > /etc/nginx/conf.d/docker-proxy.conf
+            for record in "${records_array[@]}"; do
+                if [[ -n "${record_templates[$record]}" ]]; then
+                    echo "${record_templates[$record]}" >> /etc/nginx/conf.d/docker-proxy.conf
+                fi
+            done
+
+            start_attempts=3
+            for ((i=1; i<=$start_attempts; i++)); do
+                start_nginx
+                if pgrep "nginx" > /dev/null; then
+                    INFO "重新载入配置成功. Nginx服务启动完成"
+                    break
+                else
+                    if [ $i -eq $start_attempts ]; then
+                        ERROR "Nginx 在尝试 $start_attempts 后无法启动。请检查配置"
+                        exit 1
+                    else
+                        WARN "第 $i 次启动 Nginx 失败。重试..."
+                    fi
+                fi
+            done
+            break;;
+        n|N )
+            WARN "退出配置 Nginx 操作。"
+            break;;
+        * )
+            INFO "请输入 'y' 表示是，或者 'n' 表示否。";;
+    esac
+done
 }
 
+
+function CHECK_DOCKER() {
+status=$(systemctl is-active docker)
+
+if [ "$status" = "active" ]; then
+    INFO "Docker 服务运行正常，请继续..."
+else
+    ERROR "Docker 服务未运行，会导致服务无法正常安装运行，请检查后再次执行脚本！"
+    ERROR "-----------服务启动失败，请查看错误日志 ↓↓↓-----------"
+      journalctl -u docker.service --no-pager
+    ERROR "-----------服务启动失败，请查看错误日志 ↑↑↑-----------"
+    exit 1
+fi
+}
+
+
 function INSTALL_DOCKER() {
-INFO "====================== 安装Docker ======================"
-# 定义存储库文件名
 repo_file="docker-ce.repo"
-# 下载存储库文件
 url="https://download.docker.com/linux/$repo_type"
-# 定义最多重试次数
 MAX_ATTEMPTS=3
-# 初始化 attempt和 success变量为0和 false
 attempt=0
 success=false
 
@@ -590,7 +968,6 @@ if [ "$repo_type" = "centos" ] || [ "$repo_type" = "rhel" ]; then
         WARN "Docker 未安装，正在进行安装..."
         yum-config-manager --add-repo $url/$repo_file &>/dev/null
         $package_manager -y install docker-ce &>/dev/null
-        # 检查命令的返回值
         if [ $? -eq 0 ]; then
             success=true
             break
@@ -600,7 +977,8 @@ if [ "$repo_type" = "centos" ] || [ "$repo_type" = "rhel" ]; then
 
       if $success; then
          INFO "Docker 安装成功，版本为：$(docker --version)"
-         systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
+         systemctl restart docker &>/dev/null
+         CHECK_DOCKER
          systemctl enable docker &>/dev/null
       else
          ERROR "Docker 安装失败，请尝试手动安装"
@@ -618,7 +996,6 @@ elif [ "$repo_type" == "ubuntu" ]; then
         curl -fsSL $url/gpg | sudo apt-key add - &>/dev/null
         add-apt-repository "deb [arch=amd64] $url $(lsb_release -cs) stable" <<< $'\n' &>/dev/null
         $package_manager -y install docker-ce docker-ce-cli containerd.io &>/dev/null
-        # 检查命令的返回值
         if [ $? -eq 0 ]; then
             success=true
             break
@@ -628,7 +1005,8 @@ elif [ "$repo_type" == "ubuntu" ]; then
 
       if $success; then
          INFO "Docker 安装成功，版本为：$(docker --version)"
-         systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
+         systemctl restart docker &>/dev/null
+         CHECK_DOCKER
          systemctl enable docker &>/dev/null
       else
          ERROR "Docker 安装失败，请尝试手动安装"
@@ -647,7 +1025,6 @@ elif [ "$repo_type" == "debian" ]; then
         curl -fsSL $url/gpg | sudo apt-key add - &>/dev/null
         add-apt-repository "deb [arch=amd64] $url $(lsb_release -cs) stable" <<< $'\n' &>/dev/null
         $package_manager -y install docker-ce docker-ce-cli containerd.io &>/dev/null
-        # 检查命令的返回值
         if [ $? -eq 0 ]; then
             success=true
             break
@@ -657,19 +1034,207 @@ elif [ "$repo_type" == "debian" ]; then
 
       if $success; then
          INFO "Docker 安装成功，版本为：$(docker --version)"
-         systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
+         systemctl restart docker &>/dev/null
+         CHECK_DOCKER
          systemctl enable docker &>/dev/null
       else
          ERROR "Docker 安装失败，请尝试手动安装"
          exit 1
       fi
     else
-      INFO "Docker 已安装，安装版本为：$(docker --version)"
-      systemctl restart docker | grep -E "ERROR|ELIFECYCLE|WARN"
+        INFO "Docker 已安装，安装版本为：$(docker --version)"
+        systemctl restart docker &>/dev/null
+        CHECK_DOCKER
     fi
 else
     ERROR "不支持的操作系统."
     exit 1
+fi
+}
+
+
+function INSTALL_COMPOSE() {
+INFO "================== 安装Docker Compose =================="
+
+TAG=`curl -s https://api.github.com/repos/docker/compose/releases/latest | jq -r '.tag_name'`
+url="https://github.com/docker/compose/releases/download/$TAG/docker-compose-$(uname -s)-$(uname -m)"
+MAX_ATTEMPTS=3
+attempt=0
+success=false
+save_path="/usr/local/bin"
+
+chmod +x $save_path/docker-compose &>/dev/null
+if ! command -v docker-compose &> /dev/null || [ -z "$(docker-compose --version)" ]; then
+    WARN "Docker Compose 未安装或安装不完整，正在进行安装..."    
+    while [ $attempt -lt $MAX_ATTEMPTS ]; do
+        attempt=$((attempt + 1))
+        wget --continue -q $url -O $save_path/docker-compose
+        if [ $? -eq 0 ]; then
+            chmod +x $save_path/docker-compose
+            version_check=$(docker-compose --version)
+            if [ -n "$version_check" ]; then
+                success=true
+                chmod +x $save_path/docker-compose
+                break
+            else
+                WARN "Docker Compose 下载的文件不完整，正在尝试重新下载 (尝试次数: $attempt)"
+                rm -f $save_path/docker-compose
+            fi
+        fi
+
+        ERROR "Docker Compose 下载失败，正在尝试重新下载 (尝试次数: $attempt)"
+    done
+
+    if $success; then
+        INFO "Docker Compose 安装成功，版本为：$(docker-compose --version)"
+    else
+        ERROR "Docker Compose 下载失败，请尝试手动安装docker-compose"
+        exit 1
+    fi
+else
+    chmod +x $save_path/docker-compose
+    INFO "Docker Compose 安装成功，版本为：$(docker-compose --version)"
+fi
+}
+
+function INSTALL_DOCKER_CN() {
+MAX_ATTEMPTS=3
+attempt=0
+success=false
+cpu_arch=$(uname -m)
+save_path="/opt/docker_tgz"
+mkdir -p $save_path
+docker_ver="docker-26.1.4.tgz"
+
+case $cpu_arch in
+  "arm64")
+    url="https://gitlab.com/dqzboy/docker/-/raw/main/stable/aarch64/$docker_ver"
+    ;;
+  "aarch64")
+    url="https://gitlab.com/dqzboy/docker/-/raw/main/stable/aarch64/$docker_ver"
+    ;;
+  "x86_64")
+    url="https://gitlab.com/dqzboy/docker/-/raw/main/stable/x86_64/$docker_ver"
+    ;;
+  *)
+    ERROR "不支持的CPU架构: $cpu_arch"
+    exit 1
+    ;;
+esac
+
+
+if ! command -v docker &> /dev/null; then
+  while [ $attempt -lt $MAX_ATTEMPTS ]; do
+    attempt=$((attempt + 1))
+    WARN "Docker 未安装，正在进行安装..."
+    wget -P "$save_path" "$url" &>/dev/null
+    if [ $? -eq 0 ]; then
+        success=true
+        break
+    fi
+    ERROR "Docker 安装失败，正在尝试重新下载 (尝试次数: $attempt)"
+  done
+
+  if $success; then
+     tar -xzf $save_path/$docker_ver -C $save_path
+     \cp $save_path/docker/* /usr/bin/ &>/dev/null
+     rm -rf $save_path
+     INFO "Docker 安装成功，版本为：$(docker --version)"
+     
+     cat > /usr/lib/systemd/system/docker.service <<EOF
+[Unit]
+Description=Docker Application Container Engine
+Documentation=https://docs.docker.com
+After=network-online.target firewalld.service
+Wants=network-online.target
+[Service]
+Type=notify
+ExecStart=/usr/bin/dockerd
+ExecReload=/bin/kill -s HUP 
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+TimeoutStartSec=0
+Delegate=yes
+KillMode=process
+Restart=on-failure
+StartLimitBurst=3
+StartLimitInterval=60s
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl restart docker &>/dev/null
+    CHECK_DOCKER
+    systemctl enable docker &>/dev/null
+  else
+    ERROR "Docker 安装失败，请尝试手动安装"
+    exit 1
+  fi
+else 
+    INFO "Docker 已安装，安装版本为：$(docker --version)"
+    systemctl restart docker &>/dev/null
+    CHECK_DOCKER
+fi
+}
+
+
+function INSTALL_COMPOSE_CN() {
+INFO "================== 安装Docker Compose =================="
+MAX_ATTEMPTS=3
+attempt=0
+cpu_arch=$(uname -m)
+success=false
+save_path="/usr/local/bin"
+
+case $cpu_arch in
+  "arm64")
+    url="https://gitlab.com/dqzboy/docker/-/raw/main/stable/aarch64/docker-compose-linux-aarch64"
+    ;;
+  "aarch64")
+    url="https://gitlab.com/dqzboy/docker/-/raw/main/stable/aarch64/docker-compose-linux-aarch64"
+    ;;
+  "x86_64")
+    url="https://gitlab.com/dqzboy/docker/-/raw/main/stable/x86_64/docker-compose-linux-x86_64"
+    ;;
+  *)
+    ERROR "不支持的CPU架构: $cpu_arch"
+    exit 1
+    ;;
+esac
+
+
+chmod +x $save_path/docker-compose &>/dev/null
+if ! command -v docker-compose &> /dev/null || [ -z "$(docker-compose --version)" ]; then
+    WARN "Docker Compose 未安装或安装不完整，正在进行安装..."    
+    while [ $attempt -lt $MAX_ATTEMPTS ]; do
+        attempt=$((attempt + 1))
+        wget --continue -q $url -O $save_path/docker-compose
+        if [ $? -eq 0 ]; then
+            chmod +x $save_path/docker-compose
+            version_check=$(docker-compose --version)
+            if [ -n "$version_check" ]; then
+                success=true
+                chmod +x $save_path/docker-compose
+                break
+            else
+                WARN "Docker Compose 下载的文件不完整，正在尝试重新下载 (尝试次数: $attempt)"
+                rm -f $save_path/docker-compose
+            fi
+        fi
+
+        ERROR "Docker Compose 下载失败，正在尝试重新下载 (尝试次数: $attempt)"
+    done
+
+    if $success; then
+        INFO "Docker Compose 安装成功，版本为：$(docker-compose --version)"
+    else
+        ERROR "Docker Compose 下载失败，请尝试手动安装docker-compose"
+        exit 1
+    fi
+else
+    chmod +x $save_path/docker-compose
+    INFO "Docker Compose 安装成功，版本为：$(docker-compose --version)"
 fi
 }
 
@@ -701,6 +1266,8 @@ function DOWN_CONFIG() {
         "quay reg-quay ${GITRAW}/config/registry-quay.yml"
         "k8sgcr reg-k8s-gcr ${GITRAW}/config/registry-k8sgcr.yml"
         "k8s reg-k8s ${GITRAW}/config/registry-k8s.yml"
+        "mcr reg-mcr ${GITRAW}/config/registry-mcr.yml"
+        "elastic reg-elastic ${GITRAW}/config/registry-elastic.yml"
     )
 
     selected_names=()
@@ -714,13 +1281,15 @@ function DOWN_CONFIG() {
     echo -e "${GREEN}4) ${RESET}quay"
     echo -e "${GREEN}5) ${RESET}k8s-gcr"
     echo -e "${GREEN}6) ${RESET}k8s"
-    echo -e "${GREEN}7) ${RESET}all"
-    echo -e "${GREEN}8) ${RESET}exit"
+    echo -e "${GREEN}7) ${RESET}mcr"
+    echo -e "${GREEN}8) ${RESET}elastic"
+    echo -e "${GREEN}9) ${RESET}all"
+    echo -e "${GREEN}0) ${RESET}exit"
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
 
     read -e -p "$(INFO '输入序号下载对应配置文件,空格分隔多个选项. all下载所有: ')" choices_reg
 
-    if [[ "$choices_reg" == "7" ]]; then
+    if [[ "$choices_reg" == "9" ]]; then
         for file in "${files[@]}"; do
             file_name=$(echo "$file" | cut -d' ' -f1)
             container_name=$(echo "$file" | cut -d' ' -f2)
@@ -731,7 +1300,7 @@ function DOWN_CONFIG() {
             wget -NP ${PROXY_DIR}/ $file_url &>/dev/null
         done
         selected_all=true
-    elif [[ "$choices_reg" == "8" ]]; then
+    elif [[ "$choices_reg" == "0" ]]; then
         WARN "退出下载配置! 首次安装如果没有配置无法启动服务,只能启动UI服务"
         return
     else
@@ -789,23 +1358,6 @@ function DOWN_CONFIG() {
 }
 
 
-function START_CONTAINER() {
-    if [ "$selected_all" = true ]; then
-        docker compose up -d --force-recreate
-    else
-        docker compose up -d "${selected_names[@]}" registry-ui
-    fi
-}
-
-function RESTART_CONTAINER() {
-    if [ "$selected_all" = true ]; then
-        docker compose restart
-    else
-        docker compose restart "${selected_names[@]}"
-    fi
-}
-
-
 function PROXY_HTTP() {
 read -e -p "$(echo -e ${INFO} ${GREEN}"是否添加代理? (y/n): "${RESET})" modify_config
 case $modify_config in
@@ -831,6 +1383,58 @@ esac
 }
 
 
+function ADD_PROXY() {
+mkdir -p /etc/systemd/system/docker.service.d
+
+
+if [ ! -f /etc/systemd/system/docker.service.d/http-proxy.conf ]; then
+    cat > /etc/systemd/system/docker.service.d/http-proxy.conf <<EOF
+[Service]
+Environment="HTTP_PROXY=http://$url"
+Environment="HTTPS_PROXY=http://$url"
+EOF
+    systemctl daemon-reload
+    systemctl restart docker &>/dev/null
+    CHECK_DOCKER
+else
+    if ! grep -q "HTTP_PROXY=http://$url" /etc/systemd/system/docker.service.d/http-proxy.conf || ! grep -q "HTTPS_PROXY=http://$url" /etc/systemd/system/docker.service.d/http-proxy.conf; then
+        cat >> /etc/systemd/system/docker.service.d/http-proxy.conf <<EOF
+[Service]
+Environment="HTTP_PROXY=http://$url"
+Environment="HTTPS_PROXY=http://$url"
+EOF
+        systemctl daemon-reload
+        systemctl restart docker &>/dev/null
+        CHECK_DOCKER
+    else
+        INFO "======================================================= "
+    fi
+fi
+}
+
+
+function START_CONTAINER() {
+    if [ "$modify_config" = "y" ] || [ "$modify_config" = "Y" ]; then
+        ADD_PROXY
+    else
+        INFO "拉取服务镜像并启动服务中，请稍等..."
+    fi
+
+    if [ "$selected_all" = true ]; then
+        docker-compose up -d --force-recreate
+    else
+        docker-compose up -d "${selected_names[@]}" registry-ui
+    fi
+}
+
+function RESTART_CONTAINER() {
+    if [ "$selected_all" = true ]; then
+        docker-compose restart
+    else
+        docker-compose restart "${selected_names[@]}"
+    fi
+}
+
 function INSTALL_DOCKER_PROXY() {
 INFO "======================= 开始安装 ======================="
 wget -P ${PROXY_DIR}/ ${GITRAW}/docker-compose.yaml &>/dev/null
@@ -843,7 +1447,7 @@ START_CONTAINER
 function STOP_REMOVE_CONTAINER() {
     if [[ -f "${PROXY_DIR}/${DOCKER_COMPOSE_FILE}" ]]; then
         INFO "停止和移除所有容器"
-        docker compose -f "${PROXY_DIR}/${DOCKER_COMPOSE_FILE}" down --remove-orphans
+        docker-compose -f "${PROXY_DIR}/${DOCKER_COMPOSE_FILE}" down --remove-orphans
     else 
         WARN "容器未运行，无需删除"
         exit 1
@@ -900,7 +1504,7 @@ done
 
 function INSTALL_WEB() {
 while true; do
-    read -e -p "$(INFO "是否安装WEB服务？[y/n]: ")" choice_service
+    read -e -p "$(INFO "是否安装WEB服务？(用来通过域名方式访问加速服务) [y/n]: ")" choice_service
     if [[ "$choice_service" =~ ^[YyNn]$ ]]; then
         if [[ "$choice_service" == "Y" || "$choice_service" == "y" ]]; then
             while true; do
@@ -950,31 +1554,31 @@ function UPDATE_SERVICE() {
     echo -e "${GREEN}4) ${RESET}quay"
     echo -e "${GREEN}5) ${RESET}k8s-gcr"
     echo -e "${GREEN}6) ${RESET}k8s"
-    echo -e "${GREEN}7) ${RESET}all"
-    echo -e "${GREEN}8) ${RESET}exit"
+    echo -e "${GREEN}7) ${RESET}mcr"
+    echo -e "${GREEN}8) ${RESET}elastic"
+    echo -e "${GREEN}9) ${RESET}all"
+    echo -e "${GREEN}0) ${RESET}exit"
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
 
     read -e -p "$(INFO '输入序号选择对应服务,空格分隔多个选项. all选择所有: ')" choices_service
 
-    if [[ "$choices_service" == "7" ]]; then
+    if [[ "$choices_service" == "9" ]]; then
         for service_name in "${services[@]}"; do
-            #检查服务是否正在运行
-            if docker compose ps --services | grep -q "^${service_name}$"; then
+            if docker-compose ps --services | grep -q "^${service_name}$"; then
                 selected_services+=("$service_name")               
             else
                 WARN "服务 ${service_name}未运行，跳过更新。"
             fi
         done
         INFO "更新的服务: ${selected_services[*]}"
-    elif [[ "$choices_service" == "8" ]]; then
+    elif [[ "$choices_service" == "0" ]]; then
         WARN "退出更新服务!"
         exit 1
     else
         for choice in ${choices_service}; do
             if [[ $choice =~ ^[0-9]+$ ]] && ((choice >0 && choice <= ${#services[@]})); then
                 service_name="${services[$((choice -1))]}"
-                #检查服务是否正在运行
-                if docker compose ps --services | grep -q "^${service_name}$"; then
+                if docker-compose ps --services | grep -q "^${service_name}$"; then
                     selected_services+=("$service_name")
                     INFO "更新的服务: ${selected_services[*]}"
                 else
@@ -991,13 +1595,8 @@ function UPDATE_SERVICE() {
 
 
 function PROMPT(){
-# 获取公网IP
 PUBLIC_IP=$(curl -s https://ifconfig.me)
-
-# 获取所有网络接口的IP地址
 ALL_IPS=$(hostname -I)
-
-# 排除不需要的地址（127.0.0.1和docker0）
 INTERNAL_IP=$(echo "$ALL_IPS" | awk '$1!="127.0.0.1" && $1!="::1" && $1!="docker0" {print $1}')
 
 echo
@@ -1007,6 +1606,8 @@ INFO "请用浏览器访问 UI 面板: "
 INFO "公网访问地址: http://$PUBLIC_IP:50000"
 INFO "内网访问地址: http://$INTERNAL_IP:50000"
 INFO
+INFO "服务安装路径: ${PROXY_DIR}"
+INFO 
 INFO "作者博客: https://dqzboy.com"
 INFO "技术交流: https://t.me/dqzboyblog"
 INFO "代码仓库: https://github.com/dqzboy/Docker-Proxy"
@@ -1018,7 +1619,6 @@ INFO "================================================================"
 
 
 function main() {
-
 INFO "====================== 请选择操作 ======================"
 echo "1) 新装服务"
 echo "2) 重启服务"
@@ -1036,13 +1636,30 @@ case $user_choice in
         CHECKBBR
         PACKAGE
         INSTALL_WEB
-        INSTALL_DOCKER
+        
+        while true; do
+            INFO "====================== 安装Docker ======================"
+            read -e -p "$(INFO '安装环境确认.[国外输1;大陆输2]: ')" deploy_docker
+            case "$deploy_docker" in
+                1 )
+                    INSTALL_DOCKER
+                    INSTALL_COMPOSE
+                    break;;
+                2 )
+                    INSTALL_DOCKER_CN
+                    INSTALL_COMPOSE_CN
+                    break;;
+                * )
+                    INFO "请输入 '1' 表示国外，或者 '2' 表示大陆。";;
+            esac
+        done
+
         INSTALL_DOCKER_PROXY
         PROMPT
         ;;
     2)
         INFO "======================= 重启服务 ======================="
-        docker compose restart
+        docker-compose restart
         INFO "======================= 重启完成 ======================="
         ;;
     3)
@@ -1051,8 +1668,8 @@ case $user_choice in
         if [ ${#selected_services[@]} -eq 0 ]; then
             WARN "没有需要更新的服务。"
         else
-            docker compose pull ${selected_services[*]}
-            docker compose up -d --force-recreate ${selected_services[*]}
+            docker-compose pull ${selected_services[*]}
+            docker-compose up -d --force-recreate ${selected_services[*]}
         fi
         INFO "======================= 更新完成 ======================="
         ;;

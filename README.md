@@ -2,7 +2,7 @@
   <p align="center">
   <img src="https://github.com/dqzboy/Docker-Proxy/assets/42825450/c187d66f-152e-4172-8268-e54bd77d48bb" width="230px" height="200px">
       <br>
-      <i>自建Docker镜像加速服务，基于官方 registry 一键部署Docker、K8s、Quay、Ghcr镜像加速\管理服务.</i>
+      <i>自建Docker镜像加速服务，基于官方 registry 一键部署Docker、K8s、Quay、Ghcr、Mcr、elastic等镜像加速\管理服务.</i>
   </p>
 </div>
 
@@ -19,14 +19,7 @@
 
 ---
 
-[Telegram Group](https://t.me/+ghs_XDp1vwxkMGU9) 
-
-<details>
-<summary>点击此处加入微信交流群</summary>
-<div align="center">
-<img src="https://raw.githubusercontent.com/dqzboy/Blog-Image/main/TEG/dqzboy-it.png" width="400px">
-</div>
-</details>
+[Docker Proxy—交流讨论群](https://t.me/+ghs_XDp1vwxkMGU9) 
 
 ---
 
@@ -38,7 +31,7 @@
 > 
 > 如果你只有一台服务器，不想搞域名也不想配置TLS，那么你可以配置Docker的配置文件daemon.json，指定insecure-registries配置你的镜像加速地址
 >
-> **如果你没有国外服务器，你可以在执行一键部署时配置自己的代理地址**
+> **如果你是在国内的服务器部署，那么你可以在执行一键部署时配置代理，同时会帮你解决国内无法安装Docker的问题**
 
 
 🚀 如果你身边没有上面提到的这些东西，那么你也可以部署到Render，详细操作查看下面教程
@@ -60,6 +53,15 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/dqzboy/Docker-Proxy/main
 <div>
 
 [使用Render快速部署](Render/README.md)
+
+</details>
+
+#### 使用 Koyeb 部署
+<details>
+<summary><strong>部署到 Koyeb</strong></summary>
+<div>
+
+[使用Koyeb快速部署](Koyeb/README.md)
 
 </details>
 
@@ -87,12 +89,14 @@ docker logs -f [容器ID或名称]
 
 ## 🔨 功能
 - 一键部署Docker镜像代理服务的功能，支持基于官方Docker Registry的镜像代理. 
-- 支持多个镜像仓库的代理，包括Docker Hub、GitHub Container Registry (ghcr.io)、Quay Container Registry (quay.io)和 Kubernetes Container Registry (k8s.gcr.io) 
-- 自动检查并安装所需的依赖软件，如Docker、Nginx等，并确保系统环境满足运行要求.
+- 支持多个镜像仓库的代理，包括Docker Hub、GitHub Container Registry(ghcr.io)、Quay Container Registry(quay.io)、Kubernetes Container Registry(k8s.gcr.io)、Microsoft Container(mcr.microsoft.com)、Elastic Stack(docker.elastic.co)
+- 自动检查并安装所需的依赖软件，如Docker、Nginx\Caddy等，并确保系统环境满足运行要求
+- 根据你所选择部署的服务，自动渲染对应的Nginx或Caddy服务配置
 - 自动清理注册表上传目录中的那些不再被任何镜像或清单引用的文件
 - 提供了重启服务、更新服务、更新配置和卸载服务的功能，方便用户进行日常管理和维护
 - 支持用户在部署时选择是否提供身份验证
 - 支持配置代理(HTTP_PROXY)，仅支持http
+- 解决国内环境无法安装Docker服务的难题
 - 支持主流Linux发行版操作系统,例如Centos、Ubuntu、Rocky、Debian、Rhel等
 - 支持主流ARCH架构下部署，包括linux/amd64、linux/arm64
 
@@ -141,6 +145,8 @@ docker pull gcr.your_domain_name/google-containers/pause:3.1
 | k8s.gcr.io     | k8s-gcr.your_domain_name  | Kubernetes Container Registry
 | registry.k8s.io     | k8s.your_domain_name  | Kubernetes's container image registry
 | quay.io     | quay.your_domain_name  | Quay Container Registry
+| mcr.microsoft.com     | mcr.your_domain_name  | Microsoft Container Registry
+| docker.elastic.co     | elastic.your_domain_name  | Elastic Stack
 
 ---
 
@@ -165,8 +171,6 @@ location ^~ / {
     add_header X-Cache $upstream_cache_status;
 }
 ```
-
-
 
 > 详细教程：[自建Docker镜像加速服务：加速与优化镜像管理](https://www.dqzboy.com/8709.html)
 

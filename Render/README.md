@@ -10,13 +10,6 @@
 
 [Telegram Group](https://t.me/+ghs_XDp1vwxkMGU9) 
 
-<details>
-<summary>点击此处加入微信交流群</summary>
-<div align="center">
-<img src="https://raw.githubusercontent.com/dqzboy/Blog-Image/main/TEG/dqzboy-it.png" width="400px">
-</div>
-</details>
-
 ---
 
 
@@ -42,12 +35,14 @@
 
 | 镜像 | 平台 |
 |-------|---------------|
-| dockerdqz/mirror-hub:latest   | docker hub
-| dockerdqz/mirror-gcr:latest      | Google Container Registry
-| dockerdqz/mirror-ghcr:latest     | GitHub Container Registry
-| dockerdqz/mirror-k8sgcr:latest  | Kubernetes Container Registry
-| dockerdqz/mirror-k8sreg:latest      | Kubernetes's container image registry
-| dockerdqz/mirror-quay:latest     | Quay Container Registry
+| dqzboy01/mirror-hub:latest   | docker hub
+| dqzboy01/mirror-gcr:latest      | Google Container Registry
+| dqzboy01/mirror-ghcr:latest     | GitHub Container Registry
+| dqzboy01/mirror-k8sgcr:latest  | Kubernetes Container Registry
+| dqzboy01/mirror-k8sreg:latest      | Kubernetes's container image registry
+| dqzboy01/mirror-quay:latest     | Quay Container Registry
+| dqzboy01/mirror-elastic:latest     | Microsoft Container Registry
+| dqzboy01/mirror-mcr:latest     | Elastic Stack
 
 <table>
     <tr>
@@ -118,10 +113,26 @@ docker pull your_render_url/library/redis:latest
 | ghcr.io     | your_render_url  |  GitHub Container Registry
 | k8s.gcr.io     | your_render_url  | Kubernetes Container Registry
 | quay.io     | your_render_url  | Quay Container Registry
+| mcr.microsoft.com     | mcr.your_domain_name  | Microsoft Container Registry
+| docker.elastic.co     | elastic.your_domain_name  | Elastic Stack
+
 
 ---
 
 ## ✨ 将镜像上传到自己的Docker Hub仓库
+
+#### 镜像下载地址
+| 镜像 | 平台 |
+|-------|---------------|
+| dqzboy/mirror-hub:latest   | docker hub
+| dqzboy/mirror-gcr:latest      | Google Container Registry
+| dqzboy/mirror-ghcr:latest     | GitHub Container Registry
+| dqzboy/mirror-k8sgcr:latest  | Kubernetes Container Registry
+| dqzboy/mirror-k8sreg:latest      | Kubernetes's container image registry
+| dqzboy/mirror-quay:latest     | Quay Container Registry
+| dqzboy/mirror-mcr:latest     | Microsoft Container
+| dqzboy/mirror-elastic:latest     | Elastic Stack
+
 #### 步骤 1: 登录到 Docker Hub
 - 打开终端输入以下命令并按提示输入你的 Docker Hub 用户名和密码：
 
@@ -130,10 +141,10 @@ docker login
 ```
 
 #### 步骤 2: 拉取镜像
-- 使用 docker pull 命令拉取上面的镜像，这里以 dockerdqz/mirror-hub:latest 举例：
+- 使用 docker pull 命令拉取上面的镜像，这里以 dqzboy/mirror-hub:latest 举例：
 
 ```shell
-docker pull dockerdqz/mirror-hub:latest
+docker pull dqzboy/mirror-hub:latest
 ```
 
 ####  步骤 3: 标记镜像
@@ -141,7 +152,7 @@ docker pull dockerdqz/mirror-hub:latest
 - 假设你的 Docker Hub 用户名是 yourusername，你可以使用以下命令：
 
 ```shell
-docker tag dockerdqz/mirror-hub:latest yourusername/mirror-hub:latest
+docker tag dqzboy/mirror-hub:latest yourusername/mirror-hub:latest
 ```
 
 ####  步骤 4: 上传镜像
